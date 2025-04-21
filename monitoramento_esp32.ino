@@ -62,3 +62,40 @@ void atualizaSemaforo(float temperatura) {
   digitalWrite(LED_YELLOW, temperatura > 23 && temperatura <= 26);
   digitalWrite(LED_RED, temperatura > 26);
 }
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("Iniciando ESP32...");
+
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, HIGH);
+
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_YELLOW, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+
+  digitalWrite(LED_RED, LOW);
+  digitalWrite(LED_YELLOW, LOW);
+  digitalWrite(LED_GREEN, LOW);
+
+  dht.begin();
+  Serial.println("Sensor DHT iniciado.");
+
+  WiFi.begin(ssid, password);
+  Serial.print("Conectando ao Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.print("Conectado! IP: ");
+  Serial.println(WiFi.localIP());
+
+  configTime(-3 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+
+  server.on("/", handleRoot);
+  server.on("/dados", handleDados);
+  server.on("/download", handleDownload);
+  server.begin();
+  Serial.println("Servidor HTTP iniciado.");
+}
