@@ -1,10 +1,10 @@
-// bibliotecas usadas
+// ==================== BIBLIOTECAS =====================
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DHT.h>
 #include <time.h>
 
-// definicoes de rede wifi e pinos
+// ==================== DEFINIÇÕES =====================
 const char* ssid = "S24 de Bruno";
 const char* password = "12345678";
 
@@ -16,11 +16,9 @@ const char* password = "12345678";
 #define LED_GREEN 14
 #define TEMP_THRESHOLD 23.0
 
-// instancias dos componentes
 DHT dht(DHTPIN, DHTTYPE);
 WebServer server(80);
 
-// variaveis globais
 String logHTML = "";
 String csvLog = "Hora,Temperatura (C),Umidade (%),Rele,Tempo Resposta (ms)\n";
 
@@ -28,8 +26,24 @@ float temp = 0.0;
 float hum = 0.0;
 bool estadoRele = false;
 unsigned long lastLogMillis = 0;
+
+// ==================== INTERFACE =====================
 void handleRoot() {
-  // (html da interface, identico ao original)
+  String html = "<!DOCTYPE html><html><head><meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>ESP32 Monitoramento</title>";
+  html += "<style>body{font-family:Arial;text-align:center;padding:20px;} .status{font-size:1.2em;} .led{width:30px;height:30px;border-radius:50%;display:inline-block;margin:5px;} .on{filter:brightness(100%);} .off{filter:brightness(30%);} .led-r{background:red;} .led-y{background:yellow;} .led-g{background:green;} canvas{max-width:300px;margin-top:20px;}</style>";
+  html += "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script></head><body>";
+  html += "<h1>ESP32 - Monitoramento</h1>";
+  html += "<p><strong>Temperatura:</strong> <span id='temp'>--</span></p>";
+  html += "<p><strong>Umidade:</strong> <span id='hum'>--</span></p>";
+  html += "<p><strong>Relê:</strong> <span id='rele'>--</span></p>";
+  html += "<div><span class='led led-r' id='lr'></span><span class='led led-y' id='ly'></span><span class='led led-g' id='lg'></span></div>";
+  html += "<canvas id='grafico'></canvas>";
+  html += "<button onclick=\"window.location.href='/download'\">Baixar CSV do Log</button>";
+  html += "<script>let tempData=[];let timeData=[];let chart=new Chart(document.getElementById('grafico'),{type:'line',data:{labels:timeData,datasets:[{label:'Temp (°C)',data:tempData,borderColor:'blue'}]},options:{scales:{y:{beginAtZero:true}}}});setInterval(()=>{fetch('/dados').then(r=>r.json()).then(d=>{document.getElementById('temp').innerText=d.temp.toFixed(1);document.getElementById('hum').innerText=d.hum.toFixed(1);document.getElementById('rele').innerText=d.rele?'DESLIGADO':'LIGADO';['r','y','g'].forEach((l,i)=>{document.getElementById('l'+l).className='led led-'+l+(d.semaforo==i?' on':' off')});let now=new Date().toLocaleTimeString();timeData.push(now);tempData.push(d.temp);if(tempData.length>10){tempData.shift();timeData.shift();}chart.update();});},5000);</script>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
 }
 
 void handleDados() {
@@ -62,6 +76,7 @@ void atualizaSemaforo(float temperatura) {
   digitalWrite(LED_YELLOW, temperatura > 23 && temperatura <= 26);
   digitalWrite(LED_RED, temperatura > 26);
 }
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -99,3 +114,41 @@ void setup() {
   server.begin();
   Serial.println("Servidor HTTP iniciado.");
 }
+
+void loop() {
+  server.handleClient();
+
+  unsigned long now = millis();
+  if (now - lastLogMillis >= 5000) {
+    lastLogMillis = now;
+    unsigned long tStart = millis();
+
+    temp = dht.readTemperature();
+    hum = dht.readHumidity();
+
+    if (!isnan(temp)) {
+      if (temp >= TEMP_THRESHOLD) {
+        digitalWrite(RELAY_PIN, HIGH);
+        estadoRele = false;
+      } else {
+        digitalWrite(RELAY_PIN, LOW);
+        estadoRele = true;
+      }
+    }
+
+    atualizaSemaforo(temp);
+
+    struct tm timeinfo;
+    getLocalTime(&timeinfo);
+    char hora[20];
+    strftime(hora, sizeof(hora), "%H:%M:%S", &timeinfo);
+
+    String estadoStr = estadoRele ? "DESLIGADO" : "LIGADO";
+    unsigned long tResp = millis() - tStart;
+    String novaLinha = "<tr><td>" + String(hora) + "</td><td>" + String(temp, 1) + "</td><td>" + String(hum, 1) + "</td><td>" + estadoStr + "</td><td>" + String(tResp) + "ms</td></tr>";
+
+    csvLog += String(hora) + "," + String(temp, 1) + "," + String(hum, 1) + "," + estadoStr + "," + String(tResp) + "ms\n";
+    logHTML = novaLinha + logHTML;
+  }
+}
+
